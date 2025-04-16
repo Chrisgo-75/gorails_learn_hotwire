@@ -32,3 +32,22 @@
 
 # Ignore master key for decrypting credentials and more.
 /config/master.key
+
+/node_modules
+
+# Ignore RubyMine files.
+.idea/
+mysql-connector-java-5.1.18-bin.jar
+mysql-connector-license.txt
+
+# Ignore byebug history
+.byebug_history
+
+# My own library of files I like to include
+.DS_Store
+.project
+tnsnames.ora**/settings/*-local.yml
+**/settings-local.yml
+
+# Secrets
+app.env

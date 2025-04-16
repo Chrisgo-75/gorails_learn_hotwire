@@ -1,72 +1,83 @@
-# syntax=docker/dockerfile:1
-# check=error=true
+FROM ruby:3.4.1
+LABEL maintainer="Chris Arndt <christopher.arndt@wisc.edu>"
 
-# This Dockerfile is designed for production, not development. Use with Kamal or build'n'run by hand:
-# docker build -t learn_hotwire_app .
-# docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value from config/master.key> --name learn_hotwire_app learn_hotwire_app
+# The base image is based on Debian, and we use apt to install packages.  Apt
+# will use the DEBIAN_FRONTEND environment variable to allow limited control
+# in its behavior.  In this case, we don't want it to ask interactive questions
+# as that will make the docker build command appear to be hung.
+ENV DEBIAN_FRONTEND noninteractive
 
-# For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
-
-# Make sure RUBY_VERSION matches the Ruby version in .ruby-version
-ARG RUBY_VERSION=3.4.1
-FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
-
-# Rails app lives here
-WORKDIR /rails
-
-# Install base packages
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 libvips sqlite3 && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
-
-# Set production environment
-ENV RAILS_ENV="production" \
-    BUNDLE_DEPLOYMENT="1" \
-    BUNDLE_PATH="/usr/local/bundle" \
-    BUNDLE_WITHOUT="development"
-
-# Throw-away build stage to reduce size of final image
-FROM base AS build
-
-# Install packages needed to build gems
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git pkg-config && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
-
-# Install application gems
-COPY Gemfile Gemfile.lock ./
-RUN bundle install && \
-    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
-    bundle exec bootsnap precompile --gemfile
-
-# Copy application code
-COPY . .
-
-# Precompile bootsnap code for faster boot times
-RUN bundle exec bootsnap precompile app/ lib/
-
-# Precompiling assets for production without requiring secret RAILS_MASTER_KEY
-RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
+# Download latest package information and install packages.
+# -y option says to answer yes to any prompts.
+# -qq option enables quiet mode to reduce printed output.
+# Note: it is always recommended to combine the apt-get update and
+#       apt-get install commands into a single RUN instruction.
+# apt-transport-https = allow apt to work with https-based sources
+# RUN apt-get update -yqq
+# rm -rf /var/lib/apt/lists/* == removes nodejs package lists.
+RUN apt-get update -y && apt-get --force-yes install -y --no-install-recommends  \
+    build-essential \
+    vim \
+    libaio1 \
+    curl \
+    less \
+    libmariadb-dev \
+    sqlite3 \
+    which \
+    iputils-ping \
+    git && \
+    rm -rf /var/lib/apt/lists/*
+# redis-tools && \    THE 2nd to last line needs appersands.
 
 
+# Change some environment variables from the defaults set in the official Docker image for Ruby
+#RUN echo $PATH
 
+# Install Nodejs
+COPY scripts/install_nodejs.sh ./
+RUN ./install_nodejs.sh && rm ./install_nodejs.sh
+RUN echo "NODE Version:" && node --version
 
-# Final stage for app image
-FROM base
+# Create and define the node_modules's cache directory.
+RUN mkdir /usr/src/cache
+WORKDIR /usr/src/cache
 
-# Copy built artifacts: gems, application
-COPY --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
-COPY --from=build /rails /rails
+# Install the application's dependencies into the node_modules's cache directory.
+COPY package.json ./
+COPY package-lock.json ./
+RUN npm install
+RUN echo "NPM Version:" && npm --version
 
-# Run and own only the runtime files as a non-root user for security
-RUN groupadd --system --gid 1000 rails && \
-    useradd rails --uid 1000 --gid 1000 --create-home --shell /bin/bash && \
-    chown -R rails:rails db log storage tmp
-USER 1000:1000
+# Install Yarn globally
+RUN npm install --global yarn
 
-# Entrypoint prepares the database.
-ENTRYPOINT ["/rails/bin/docker-entrypoint"]
+# Make this the current working directory for the image. So we can execute Rails \
+# cmds against image.
+RUN mkdir -p /usr/src/app
 
-# Start server via Thruster by default, this can be overwritten at runtime
-EXPOSE 80
-CMD ["./bin/thrust", "./bin/rails", "server"]
+# Gemfile Caching Trick
+# Note: When using COPY with more than one source file, the destination must
+#       be a directory and end with a /
+# 1. This creates a separate, independent layer. Docker's cache for this layer
+#    will only be busted if either of these two files (Gemfile & Gemfile.lcok) change.
+COPY Gemfile* /usr/src/app/
+
+# CD or change into the working directory.
+WORKDIR /usr/src/app
+
+# Update RubyGems to most current version.
+RUN echo "RubyGems Version:" && gem -v
+RUN echo "gem update --system 3.6.6"
+RUN echo "RubyGems Version:" && gem -v
+
+RUN echo "gem: --no-document" >> ~/.gemrc && \
+  bundle install
+
+# ADD/COPY app files from local directory into container so they are baked into the image.
+# The source path on our local machine is always relative to where the Dockerfile is located.
+ADD . /usr/src/app
+
+# Add  a script to be executed every time the container starts.
+# Entrypoint files are used to set up or configure a container at runtime.
+# Below file needs to be executable: $ sudo chmod +x docker_entrypoint_staging.sh
+ENTRYPOINT ["./entrypoints/docker_entrypoint_dev.sh"]

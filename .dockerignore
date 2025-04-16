@@ -49,3 +49,16 @@
 # Ignore Docker-related files
 /.dockerignore
 /Dockerfile*
+
+#
+# Vim Editor temp files
+#
+*.swp
+*.swo
+
+#
+# RubyMine Editor temp files
+#
+.idea
+
+.vscode
