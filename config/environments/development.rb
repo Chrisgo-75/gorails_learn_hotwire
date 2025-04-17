@@ -40,6 +40,19 @@ Rails.application.configure do
   # Set localhost to be used by links generated in mailer templates.
   config.action_mailer.default_url_options = { host: "localhost", port: 3000 }
 
+  # Log to STDOUT by default
+  config.logger = ActiveSupport::Logger.new(STDOUT)
+       .tap  { |logger| logger.formatter = ::Logger::Formatter.new }
+       .then { |logger| ActiveSupport::TaggedLogging.new(logger) }
+
+  # Prepend all log lines with the following tags.
+  config.log_tags = [ :request_id ]
+
+  # "info" includes generic and useful information about system operation, but avoids logging too much
+  # information to avoid inadvertent exposure of personally identifiable information (PII). If you
+  # want to log everything, set the level to "debug".
+  config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "debug")
+
   # Print deprecation notices to the Rails logger.
   config.active_support.deprecation = :log
 
@@ -72,4 +85,13 @@ Rails.application.configure do
 
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
+
+  # Rails server 'missing secret_key_base':
+  # This has been added by developer b/c on the Rails servers, Rails app isn't grabbing
+  # 'secret_key_base' from Rails server Env successfully. So ended up manually helping
+  # Rails!
+  # config.secret_key_base = ENV['SECRET_KEY_BASE']
+  # Instead of using Figaro gem, have removed it and am assigning value within application.
+  #config.secret_key_base = ENV.fetch('SECRET_KEY_BASE')
+
 end
